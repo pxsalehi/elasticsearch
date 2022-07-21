@@ -1,0 +1,60 @@
+[[pre-validate-node-removal]]
+=== Pre-validate node removal API
+++++
+<titleabbrev>Pre-validate node removal</titleabbrev>
+++++
+
+NOTE: {cloud-only}
+
+Pre-validate node removal.
+
+[[pre-validate-node-removal-request]]
+==== {api-request-title}
+
+[source,console]
+--------------------------------------------------
+GET /_internal/desired_nodes/_latest
+--------------------------------------------------
+// TEST
+
+[[pre-validate-node-removal-desc]]
+==== {api-description-title}
+
+This API allows validating whether it is safe to remove the specified nodes from the cluster. In case the cluster has a RED health status, this verifies that removal of the node would not risk removing the last remaining copy of an unassigned shard.
+
+[[pre-validate-node-removal-examples]]
+==== {api-examples-title}
+
+This example validates whether it is safe to remove the nodes `node1` and `node2`.
+
+[source,console]
+--------------------------------------------------
+GET /_internal/prevalidate_node_removal?nodes=node1,node2
+--------------------------------------------------
+// TEST
+
+The API returns the following result:
+
+[source,console-result]
+--------------------------------------------------
+{
+    "is_removal_safe": "YES" | "NO" | "MAYBE",
+    "nodes": {
+        "node1": {
+            "is_removal_safe": "YES" | "NO" | "MAYBE",
+            "reason": "<reason why NO or MAYBE>"
+        },
+        "node2": {
+            "is_removal_safe": "YES" | "NO" | "MAYBE",
+            "reason": "<reason why NO or MAYBE>"
+        }
+    }
+}
+--------------------------------------------------
+// TEST[s/<history_id>/$body.history_id/]
+// TEST[s/<version>/$body.version/]
+// TEST[s/<node_settings>/$body.nodes.0.settings/]
+// TEST[s/<node_processors>/$body.nodes.0.processors/]
+// TEST[s/<node_memory>/$body.nodes.0.memory/]
+// TEST[s/<node_storage>/$body.nodes.0.storage/]
+// TEST[s/<node_version>/$body.nodes.0.node_version/]
