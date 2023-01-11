@@ -81,6 +81,7 @@ import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.stream.Stream;
 
@@ -1013,7 +1014,7 @@ public abstract class Engine implements Closeable {
      * changes.
      */
     @Nullable
-    public abstract void refresh(String source) throws EngineException;
+    public abstract RefreshResult refresh(String source) throws EngineException;
 
     /**
      * Synchronously refreshes the engine for new search operations to reflect the latest
@@ -1022,7 +1023,7 @@ public abstract class Engine implements Closeable {
      * @return <code>true</code> if the a refresh happened. Otherwise <code>false</code>
      */
     @Nullable
-    public abstract boolean maybeRefresh(String source) throws EngineException;
+    public abstract RefreshResult maybeRefresh(String source) throws EngineException;
 
     /**
      * Called when our engine is using too much heap and should move buffered indexed/deleted documents to disk.
@@ -1955,5 +1956,9 @@ public abstract class Engine implements Closeable {
 
     public final EngineConfig getEngineConfig() {
         return engineConfig;
+    }
+
+    public void waitForSegmentGeneration(long minGeneration, Consumer<Long> consumer) {
+        throw new UnsupportedOperationException();
     }
 }
