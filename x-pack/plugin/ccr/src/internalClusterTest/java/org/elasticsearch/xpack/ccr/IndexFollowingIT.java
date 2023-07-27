@@ -140,6 +140,36 @@ public class IndexFollowingIT extends CcrIntegTestCase {
         return Stream.concat(super.nodePlugins().stream(), Stream.of(PrivateSettingPlugin.class)).collect(Collectors.toList());
     }
 
+    public void testFollowerRestoreFailure() throws Exception {
+        final int numberOfPrimaryShards = randomIntBetween(1, 3);
+        int numberOfReplicas = between(0, 1);
+
+        followerClient().admin()
+            .cluster()
+            .prepareUpdateSettings()
+            .setMasterNodeTimeout(TimeValue.MAX_VALUE)
+            .setPersistentSettings(
+                Settings.builder()
+                    .put(CcrSettings.RECOVERY_CHUNK_SIZE.getKey(), new ByteSizeValue(randomIntBetween(1, 1000), ByteSizeUnit.KB))
+            )
+            .get();
+
+        final String leaderIndexSettings = getIndexSettings(numberOfPrimaryShards, numberOfReplicas);
+        assertAcked(leaderClient().admin().indices().prepareCreate("index1").setSource(leaderIndexSettings, XContentType.JSON));
+        ensureLeaderYellow("index1");
+
+        final int firstBatchNumDocs = randomIntBetween(10, 64);
+        try (BackgroundIndexer indexer = new BackgroundIndexer("index1", leaderClient(), firstBatchNumDocs, randomIntBetween(1, 5))) {
+            waitForDocs(firstBatchNumDocs, indexer);
+            indexer.assertNoFailures();
+        }
+        final PutFollowAction.Request followRequest = putFollow("index1", "index2", ActiveShardCount.ALL);
+        PutFollowAction.Response response = followerClient().execute(PutFollowAction.INSTANCE, followRequest).get();
+        assertTrue(response.isFollowIndexCreated());
+        assertTrue(response.isFollowIndexShardsAcked());
+        assertTrue(response.isIndexFollowingStarted());
+    }
+
     public void testFollowIndex() throws Exception {
         final int numberOfPrimaryShards = randomIntBetween(1, 3);
         int numberOfReplicas = between(0, 1);
