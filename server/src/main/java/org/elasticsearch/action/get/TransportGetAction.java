@@ -215,7 +215,10 @@ public class TransportGetAction extends TransportSingleShardAction<GetRequest, G
                             assert r.segmentGeneration() > -1L;
                             indexShard.waitForSegmentGeneration(
                                 r.segmentGeneration(),
-                                listener.delegateFailureAndWrap((ll, aLong) -> super.asyncShardOperation(request, shardId, ll))
+                                listener.delegateFailureAndWrap((ll, aLong) -> {
+                                    logger.debug("Now at gen {} and getting id '{}", aLong, request.id());
+                                    super.asyncShardOperation(request, shardId, ll);
+                                })
                             );
                         }
                     }

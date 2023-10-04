@@ -80,6 +80,8 @@ public class TransportGetFromTranslogAction extends HandledTransportAction<
                     throw new AlreadyClosedException("engine closed");
                 }
                 segmentGeneration = ((InternalEngine) engine).getLastUnsafeSegmentGenerationForGets();
+                logger.info("Returning gen {} for search shard to wait for (id='{}') and local gen is {}",
+                    segmentGeneration, getRequest.id(), engine.getLastCommittedSegmentInfos().getGeneration());
             }
             return new Response(result, segmentGeneration);
         });

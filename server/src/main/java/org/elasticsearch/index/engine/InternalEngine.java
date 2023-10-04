@@ -929,6 +929,8 @@ public class InternalEngine extends Engine {
             }
             assert versionValue.seqNo >= 0 : versionValue;
             refreshIfNeeded(REAL_TIME_GET_REFRESH_SOURCE, versionValue.seqNo);
+        } else {
+            logger.info("id {} wasn't even in the LVM!", get.id());
         }
         if (getFromSearcherIfNotInTranslog) {
             return getFromSearcher(get, acquireSearcher("realtime_get", SearcherScope.INTERNAL, searcherWrapper), false);
@@ -1033,14 +1035,19 @@ public class InternalEngine extends Engine {
     }
 
     private VersionValue getVersionFromMap(BytesRef id) {
-        if (versionMap.isUnsafe()) {
+        var isUnsafe = versionMap.isUnsafe();
+        logger.info("Checking if switching safe/unsafe needed for id {}, currently unsafe = {}", Uid.decodeId(id.bytes), isUnsafe);
+        if (isUnsafe) {
             synchronized (versionMap) {
                 // we are switching from an unsafe map to a safe map. This might happen concurrently
                 // but we only need to do this once since the last operation per ID is to add to the version
                 // map so once we pass this point we can safely lookup from the version map.
                 if (versionMap.isUnsafe()) {
-                    lastUnsafeSegmentGenerationForGets.set(lastCommittedSegmentInfos.getGeneration() + 1);
-                    refreshInternalSearcher(UNSAFE_VERSION_MAP_REFRESH_SOURCE, true);
+                    var manuallyComputed = lastCommittedSegmentInfos.getGeneration() + 1;
+                    lastUnsafeSegmentGenerationForGets.set(manuallyComputed);
+                    var refreshResult = refreshInternalSearcher(UNSAFE_VERSION_MAP_REFRESH_SOURCE, true);
+                    logger.info("Switching unsafe to safe while checking id '{}', manual={}, refreshed={}",
+                        Uid.decodeId(id.bytes), manuallyComputed, refreshResult.generation());
                 }
                 versionMap.enforceSafeAccess();
             }
@@ -1284,6 +1291,7 @@ public class InternalEngine extends Engine {
             plan = IndexingStrategy.optimizedAppendOnly(index.version(), 0);
         } else {
             versionMap.enforceSafeAccess();
+//            enforceSafeVersionMap("planIndexingAsNonPrimary");
             final OpVsLuceneDocStatus opVsLucene = compareOpToLuceneDocBasedOnSeqNo(index);
             if (opVsLucene == OpVsLuceneDocStatus.OP_STALE_OR_EQUAL) {
                 plan = IndexingStrategy.processAsStaleOp(index.version(), 0);
@@ -1303,6 +1311,16 @@ public class InternalEngine extends Engine {
         }
     }
 
+    private void enforceSafeVersionMap(String source) {
+        assert false : "boom";
+        logger.info("Recording new unsafe gen in {}", source);
+        if (versionMap.isSafeAccessRequired() == false) {
+            lastUnsafeSegmentGenerationForGets.set(lastCommittedSegmentInfos.getGeneration() + 1);
+            refreshInternalSearcher(UNSAFE_VERSION_MAP_REFRESH_SOURCE, true);
+        }
+        versionMap.enforceSafeAccess();
+    }
+
     private IndexingStrategy planIndexingAsPrimary(Index index) throws IOException {
         assert index.origin() == Operation.Origin.PRIMARY : "planing as primary but origin isn't. got " + index.origin();
         final int reservingDocs = index.parsedDoc().docs().size();
@@ -1318,6 +1336,7 @@ public class InternalEngine extends Engine {
             }
         } else {
             versionMap.enforceSafeAccess();
+//            enforceSafeVersionMap("planIndexingAsPrimary");
             // resolves incoming version
             final VersionValue versionValue = resolveDocVersion(index, index.getIfSeqNo() != SequenceNumbers.UNASSIGNED_SEQ_NO);
             final long currentVersion;

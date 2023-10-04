@@ -15,15 +15,20 @@ import org.apache.lucene.util.RamUsageEstimator;
 import org.elasticsearch.common.util.concurrent.ConcurrentCollections;
 import org.elasticsearch.common.util.concurrent.KeyedLock;
 import org.elasticsearch.core.Releasable;
+import org.elasticsearch.index.mapper.Uid;
+import org.elasticsearch.logging.LogManager;
+import org.elasticsearch.logging.Logger;
 
 import java.io.IOException;
 import java.util.Collections;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.stream.Collectors;
 
 /** Maps _uid value to its version information. */
 public final class LiveVersionMap implements ReferenceManager.RefreshListener, Accountable {
 
+    private final Logger logger = LogManager.getLogger(LiveVersionMap.class);
     private final KeyedLock<BytesRef> keyedLock = new KeyedLock<>();
 
     private final LiveVersionMapArchive archive;
@@ -84,11 +89,11 @@ public final class LiveVersionMap implements ReferenceManager.RefreshListener, A
             return map.isEmpty();
         }
 
-        int size() {
+        public int size() {
             return map.size();
         }
 
-        boolean isUnsafe() {
+        public boolean isUnsafe() {
             return unsafe;
         }
 
@@ -107,9 +112,14 @@ public final class LiveVersionMap implements ReferenceManager.RefreshListener, A
         public long minDeleteTimestamp() {
             return minDeleteTimestamp.get();
         }
+
+        @Override
+        public String toString() {
+            return map.keySet().stream().map(uid -> Uid.decodeId(uid.bytes)).collect(Collectors.toSet()).toString();
+        }
     }
 
-    private static final class Maps {
+    private final class Maps {
 
         // All writes (adds and deletes) go into here:
         final VersionLookup current;
@@ -126,6 +136,7 @@ public final class LiveVersionMap implements ReferenceManager.RefreshListener, A
             this.current = current;
             this.old = old;
             this.previousMapsNeededSafeAccess = previousMapsNeededSafeAccess;
+            logger.info("New MAPS isSafeAccessMode={}, isUnsafe=[current={}, old={}]", isSafeAccessMode(), current.isUnsafe(), old.isUnsafe());
         }
 
         Maps() {
@@ -140,7 +151,7 @@ public final class LiveVersionMap implements ReferenceManager.RefreshListener, A
             final boolean mapHasNotSeenAnyOperations = current.isEmpty() && current.isUnsafe() == false;
             return needsSafeAccess
                 // we haven't seen any ops and map before needed it so we maintain it
-                || (mapHasNotSeenAnyOperations && previousMapsNeededSafeAccess);
+                || (mapHasNotSeenAnyOperations && (previousMapsNeededSafeAccess /* || archive.needsSafeAccess */));
         }
 
         /**
@@ -290,14 +301,17 @@ public final class LiveVersionMap implements ReferenceManager.RefreshListener, A
 
     private VersionValue getUnderLock(final BytesRef uid, Maps currentMaps) {
         assert assertKeyedLockHeldByCurrentThread(uid);
+        var id = Uid.decodeId(uid.bytes);
         // First try to get the "live" value:
         VersionValue value = currentMaps.current.get(uid);
         if (value != null) {
+            logger.info("Found id '{}' in current map", id);
             return value;
         }
 
         value = currentMaps.old.get(uid);
         if (value != null) {
+            logger.info("Found id '{}' in old map", id);
             return value;
         }
 
@@ -305,9 +319,11 @@ public final class LiveVersionMap implements ReferenceManager.RefreshListener, A
         // makes sure in `putDeleteUnderLock` the old map does not hold an entry that is in tombstone, archive also wouldn't have them.
         value = tombstones.get(uid);
         if (value != null) {
+            logger.info("Found id '{}' in tombstone", id);
             return value;
         }
 
+        logger.info("id '{}' not found in current/old, checking archive. Current: {}, Old: {}", id, currentMaps.current, currentMaps.old);
         return archive.get(uid);
     }
 
@@ -320,10 +336,12 @@ public final class LiveVersionMap implements ReferenceManager.RefreshListener, A
     }
 
     boolean isUnsafe() {
-        return maps.current.isUnsafe() || maps.old.isUnsafe();
+        return maps.current.isUnsafe() || maps.old.isUnsafe() || archive.isUnsafe();
     }
 
     void enforceSafeAccess() {
+//    synchronized void enforceSafeAccess() {
+//        logger.info("Enforcing safe access in LVM, current value = {}", maps.needsSafeAccess);
         maps.needsSafeAccess = true;
     }
 
@@ -338,11 +356,13 @@ public final class LiveVersionMap implements ReferenceManager.RefreshListener, A
         assert assertKeyedLockHeldByCurrentThread(uid);
         Maps maps = this.maps;
         if (maps.isSafeAccessMode()) {
+            logger.info("Adding id '{}' to the LVM", Uid.decodeId(uid.bytes));
             putIndexUnderLock(uid, version);
         } else {
             // Even though we don't store a record of the indexing operation (and mark as unsafe),
             // we should still remove any previous delete for this uuid (avoid accidental accesses).
             // Not this should not hurt performance because the tombstone is small (or empty) when unsafe is relevant.
+            logger.info("Map unsafe. Not adding id '{}' to the LVM", Uid.decodeId(uid.bytes));
             removeTombstoneUnderLock(uid);
             maps.current.markAsUnsafe();
             assert putAssertionMap(uid, version);

@@ -31,6 +31,10 @@ public interface LiveVersionMapArchive {
      */
     long getMinDeleteTimestamp();
 
+    default boolean isUnsafe() {
+        return false;
+    }
+
     LiveVersionMapArchive NOOP_ARCHIVE = new LiveVersionMapArchive() {
         @Override
         public void afterRefresh(LiveVersionMap.VersionLookup old) {}
