@@ -69,4 +69,8 @@ public abstract class ClusterStateUpdateTask implements ClusterStateTaskListener
     public final Priority priority() {
         return priority;
     }
+
+    public boolean shouldBeThrottled() {
+        return false;
+    }
 }

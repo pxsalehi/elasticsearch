@@ -118,6 +118,11 @@ public class MasterService extends AbstractLifecycleComponent {
     private final ClusterStateUpdateStatsTracker clusterStateUpdateStatsTracker = new ClusterStateUpdateStatsTracker();
     private final StarvationWatcher starvationWatcher = new StarvationWatcher();
 
+    private static final long MAX_UPDATE_TASKS_PER_INTERVAL = 1;
+    private static final long BUDGET_INTERVAL_MILLIS = 30 * 1000;
+    private final long budgetStartTimeMillis = 0;
+    private AtomicLong budget = new AtomicLong(MAX_UPDATE_TASKS_PER_INTERVAL);
+
     public MasterService(Settings settings, ClusterSettings clusterSettings, ThreadPool threadPool, TaskManager taskManager) {
         this.nodeName = Objects.requireNonNull(Node.NODE_NAME_SETTING.get(settings));
 
@@ -225,6 +230,10 @@ public class MasterService extends AbstractLifecycleComponent {
             }
             listener.onResponse(null);
             return;
+        }
+
+        if (getTimeSince(budgetStartTimeMillis).millis() > BUDGET_INTERVAL_MILLIS) {
+            budget.set(MAX_UPDATE_TASKS_PER_INTERVAL);
         }
 
         final long computationStartTime = threadPool.rawRelativeTimeInMillis();
@@ -556,7 +565,7 @@ public class MasterService extends AbstractLifecycleComponent {
         createTaskQueue("unbatched", updateTask.priority(), unbatchedExecutor).submitTask(source, updateTask, updateTask.timeout());
     }
 
-    private static class UnbatchedExecutor implements ClusterStateTaskExecutor<ClusterStateUpdateTask> {
+    private class UnbatchedExecutor implements ClusterStateTaskExecutor<ClusterStateUpdateTask> {
         @Override
         @SuppressForbidden(reason = "consuming published cluster state for legacy reasons")
         public ClusterState execute(BatchExecutionContext<ClusterStateUpdateTask> batchExecutionContext) throws Exception {
@@ -564,6 +573,9 @@ public class MasterService extends AbstractLifecycleComponent {
                 : "this only supports a single task but received " + batchExecutionContext.taskContexts();
             final var taskContext = batchExecutionContext.taskContexts().get(0);
             final var task = taskContext.getTask();
+            if (task.shouldBeThrottled() && budget.decrementAndGet() < 0) {
+                throw new EsRejectedExecutionException("too many cluster state updates");
+            }
             final ClusterState newState;
             try (var ignored = taskContext.captureResponseHeaders()) {
                 newState = task.execute(batchExecutionContext.initialState());
@@ -1023,7 +1035,7 @@ public class MasterService extends AbstractLifecycleComponent {
         }
     }
 
-    private static <T extends ClusterStateTaskListener> ClusterState executeTasks(
+    private <T extends ClusterStateTaskListener> ClusterState executeTasks(
         ClusterState previousClusterState,
         List<ExecutionResult<T>> executionResults,
         ClusterStateTaskExecutor<T> executor,
@@ -1055,7 +1067,7 @@ public class MasterService extends AbstractLifecycleComponent {
 
     static final String TEST_ONLY_EXECUTOR_MAY_CHANGE_VERSION_NUMBER_TRANSIENT_NAME = "test_only_executor_may_change_version_number";
 
-    private static <T extends ClusterStateTaskListener> ClusterState innerExecuteTasks(
+    private <T extends ClusterStateTaskListener> ClusterState innerExecuteTasks(
         ClusterState previousClusterState,
         List<ExecutionResult<T>> executionResults,
         ClusterStateTaskExecutor<T> executor,
@@ -1067,6 +1079,9 @@ public class MasterService extends AbstractLifecycleComponent {
             // to avoid leaking headers in production that were missed by tests
 
             try {
+                if (executor.shouldBeThrottled() && budget.decrementAndGet() < 0) {
+                    throw new EsRejectedExecutionException("too many cluster state updates");
+                }
                 final var updatedState = executor.execute(
                     new ClusterStateTaskExecutor.BatchExecutionContext<>(
                         previousClusterState,

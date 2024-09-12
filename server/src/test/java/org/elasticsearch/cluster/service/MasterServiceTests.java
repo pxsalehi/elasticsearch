@@ -80,6 +80,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.UnaryOperator;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 import static java.util.Collections.emptySet;
 import static org.elasticsearch.action.support.ActionTestUtils.assertNoSuccessListener;
@@ -255,6 +256,35 @@ public class MasterServiceTests extends ESTestCase {
         }
 
         assertThat(registeredActions.toString(), registeredActions, contains(MasterService.STATE_UPDATE_ACTION_NAME));
+    }
+
+    public void testThrottledClusterStateUpdate() {
+        try (var master = createMasterService(true)) {
+            var failed = new AtomicInteger(0);
+            var succeeded = new AtomicInteger(0);
+            // use some listeners for this test? ref counting ...
+            IntStream.range(0, 2).forEach(i -> {
+                master.submitUnbatchedStateUpdateTask("test", new ClusterStateUpdateTask() {
+                    @Override
+                    public ClusterState execute(ClusterState currentState) throws Exception {
+                        succeeded.incrementAndGet();
+                        return currentState;
+                    }
+
+                    @Override
+                    public void onFailure(Exception e) {
+                        failed.incrementAndGet();
+                    }
+
+                    @Override
+                    public boolean shouldBeThrottled() {
+                        return true;
+                    }
+                });
+            });
+            assertThat(succeeded.get(), equalTo(1));
+            assertThat(failed.get(), equalTo(1));
+        }
     }
 
     public void testThreadContext() throws InterruptedException {

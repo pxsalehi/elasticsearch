@@ -43,6 +43,10 @@ public interface ClusterStateTaskExecutor<T extends ClusterStateTaskListener> {
      */
     ClusterState execute(BatchExecutionContext<T> batchExecutionContext) throws Exception;
 
+    default boolean shouldBeThrottled() {
+        return false;
+    }
+
     /**
      * @return {@code true} iff this executor should only run on the elected master.
      */
