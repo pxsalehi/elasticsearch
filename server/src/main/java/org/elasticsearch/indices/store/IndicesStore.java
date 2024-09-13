@@ -235,6 +235,7 @@ public final class IndicesStore implements ClusterStateListener, Closeable {
             state.getVersion(),
             requests.size()
         );
+        logger.info("--> deleting if exists for {}", requests);
         for (Tuple<DiscoveryNode, ShardActiveRequest> request : requests) {
             logger.trace("{} sending shard active check to {}", request.v2().shardId, request.v1());
             transportService.sendRequest(request.v1(), ACTION_SHARD_EXISTS, request.v2(), responseHandler);
@@ -288,6 +289,7 @@ public final class IndicesStore implements ClusterStateListener, Closeable {
         }
 
         private void allNodesResponded() {
+            logger.info("--> all nodes responses to the shard active request");
             if (activeCopies.get() != expectedActiveCopies) {
                 logger.trace(
                     "not deleting shard {}, expected {} active copies, but only {} found active copies",

@@ -42,10 +42,11 @@ import static org.hamcrest.Matchers.equalTo;
 public class PrevalidateShardPathIT extends ESIntegTestCase {
 
     @TestIssueLogging(
-        value = "org.elasticsearch.cluster.service.MasterService:DEBUG, "
+        value = "org.elasticsearch.cluster.service.MasterService:DEBUG,"
             + "org.elasticsearch.indices.store.IndicesStore:TRACE,"
             + "org.elasticsearch.indices.cluster.IndicesClusterStateService:DEBUG,"
-            + "org.elasticsearch.indices.IndicesService:TRACE",
+            + "org.elasticsearch.indices.IndicesService:TRACE,"
+            + "org.elasticsearch.env.NodeEnvironment:TRACE",
         issueUrl = "https://github.com/elastic/elasticsearch/issues/104807"
     )
     public void testCheckShards() throws Exception {
@@ -135,5 +136,6 @@ public class PrevalidateShardPathIT extends ESIntegTestCase {
                 throw e;
             }
         }, 30, TimeUnit.SECONDS);
+        logger.info("--> all done");
     }
 }
