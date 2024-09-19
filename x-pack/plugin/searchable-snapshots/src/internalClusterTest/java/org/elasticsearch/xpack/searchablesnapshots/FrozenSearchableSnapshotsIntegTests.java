@@ -52,6 +52,7 @@ import org.elasticsearch.search.aggregations.bucket.histogram.DateHistogramInter
 import org.elasticsearch.search.aggregations.bucket.histogram.Histogram;
 import org.elasticsearch.snapshots.SearchableSnapshotsSettings;
 import org.elasticsearch.snapshots.SnapshotInfo;
+import org.elasticsearch.test.junit.annotations.TestIssueLogging;
 import org.elasticsearch.xpack.core.searchablesnapshots.MountSearchableSnapshotAction;
 import org.elasticsearch.xpack.core.searchablesnapshots.MountSearchableSnapshotRequest;
 import org.elasticsearch.xpack.searchablesnapshots.action.SearchableSnapshotsStatsAction;
@@ -87,6 +88,11 @@ import static org.hamcrest.Matchers.sameInstance;
 
 public class FrozenSearchableSnapshotsIntegTests extends BaseFrozenSearchableSnapshotsIntegTestCase {
 
+    @TestIssueLogging(
+        value = "org.elasticsearch.xpack.searchablesnapshots.cache.blob.BlobStoreCacheService:DEBUG," +
+            "org.elasticsearch.action.support.single.shard.TransportSingleShardAction:DEBUG",
+        issueUrl = "https://github.com/elastic/elasticsearch/issues/110408"
+    )
     public void testCreateAndRestorePartialSearchableSnapshot() throws Exception {
         final String fsRepoName = randomAlphaOfLength(10);
         final String indexName = randomAlphaOfLength(10).toLowerCase(Locale.ROOT);
