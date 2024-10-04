@@ -289,7 +289,7 @@ public class Node implements Closeable {
             return this;
         }
 
-        logger.info("starting ...");
+        logger.info("starting that sweet sweet custom image...");
         pluginLifecycleComponents.forEach(LifecycleComponent::start);
 
         if (ReadinessService.enabled(environment)) {
