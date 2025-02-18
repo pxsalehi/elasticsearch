@@ -34,6 +34,7 @@ import org.elasticsearch.core.Tuple;
 import org.elasticsearch.index.IndexNotFoundException;
 import org.elasticsearch.test.BackgroundIndexer;
 import org.elasticsearch.test.ESIntegTestCase;
+import org.elasticsearch.test.junit.annotations.TestIssueLogging;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -387,6 +388,7 @@ public class SimpleBlocksIT extends ESIntegTestCase {
         }
     }
 
+    @TestIssueLogging(value = "org.elasticsearch.cluster.metadata.MetadataIndexStateService:DEBUG", issueUrl = "yeah")
     public void testConcurrentAddBlock() throws InterruptedException, ExecutionException {
         final String indexName = randomAlphaOfLength(10).toLowerCase(Locale.ROOT);
         createIndex(indexName);
