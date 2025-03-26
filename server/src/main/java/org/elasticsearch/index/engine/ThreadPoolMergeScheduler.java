@@ -65,11 +65,13 @@ public class ThreadPoolMergeScheduler extends MergeScheduler implements Elastics
     private final AtomicLong doneMergeTaskCount = new AtomicLong();
     private final CountDownLatch closedWithNoRunningMerges = new CountDownLatch(1);
     private volatile boolean closed = false;
+    private final MergeMemoryEstimator mergeMemoryEstimator;
 
     public ThreadPoolMergeScheduler(
         ShardId shardId,
         IndexSettings indexSettings,
-        ThreadPoolMergeExecutorService threadPoolMergeExecutorService
+        ThreadPoolMergeExecutorService threadPoolMergeExecutorService,
+        MergeMemoryEstimator mergeMemoryEstimator
     ) {
         this.shardId = shardId;
         this.config = indexSettings.getMergeSchedulerConfig();
@@ -81,6 +83,7 @@ public class ThreadPoolMergeScheduler extends MergeScheduler implements Elastics
                 : Double.POSITIVE_INFINITY
         );
         this.threadPoolMergeExecutorService = threadPoolMergeExecutorService;
+        this.mergeMemoryEstimator = mergeMemoryEstimator;
     }
 
     @Override
@@ -338,6 +341,14 @@ public class ThreadPoolMergeScheduler extends MergeScheduler implements Elastics
             return mergeStartTimeNS.get() > 0L;
         }
 
+        public long getEstimateMergeMemoryBytes() {
+            return mergeMemoryEstimator.estimateMergeMemoryBytes(onGoingMerge.getMerge());
+        }
+
+        public OnGoingMerge getOnGoingMerge() {
+            return onGoingMerge;
+        }
+
         /**
          * Runs the merge associated to this task. MUST be invoked after {@link #schedule()} returned {@link Schedule#RUN},
          * to confirm that the associated {@link MergeScheduler} assents to run the merge.
@@ -525,5 +536,14 @@ public class ThreadPoolMergeScheduler extends MergeScheduler implements Elastics
         ABORT,
         RUN,
         BACKLOG
+    }
+
+    @FunctionalInterface
+    public interface MergeMemoryEstimator {
+
+        /**
+         * Returns an estimate of the memory needed to perform a merge
+         */
+        long estimateMergeMemoryBytes(MergePolicy.OneMerge merge);
     }
 }

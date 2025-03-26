@@ -14,6 +14,7 @@ import org.elasticsearch.common.unit.ByteSizeValue;
 import org.elasticsearch.common.util.concurrent.ConcurrentCollections;
 import org.elasticsearch.core.Nullable;
 import org.elasticsearch.index.engine.ThreadPoolMergeScheduler.MergeTask;
+import org.elasticsearch.index.merge.OnGoingMerge;
 import org.elasticsearch.threadpool.ThreadPool;
 
 import java.util.Comparator;
@@ -55,6 +56,9 @@ public class ThreadPoolMergeExecutorService {
         64,
         Comparator.comparingLong(MergeTask::estimatedMergeSize)
     );
+
+    private record MaxMergeMemoryEstimate(String mergeId, long memoryBytes) {}
+    private MaxMergeMemoryEstimate maxMergeMemoryEstimate = new MaxMergeMemoryEstimate("", -1);
     /**
      * The set of all merge tasks currently being executed by merge threads from the pool.
      * These are tracked notably in order to be able to update their disk IO throttle rate, after they have started, while executing.
@@ -72,6 +76,8 @@ public class ThreadPoolMergeExecutorService {
     private final int maxConcurrentMerges;
     private final int concurrentMergesFloorLimitForThrottling;
     private final int concurrentMergesCeilLimitForThrottling;
+
+    private volatile MergeEventConsumer mergeEventConsumer;
 
     public static @Nullable ThreadPoolMergeExecutorService maybeCreateThreadPoolMergeExecutorService(
         ThreadPool threadPool,
@@ -126,11 +132,20 @@ public class ThreadPoolMergeExecutorService {
             }
             // then enqueue the merge task proper
             queuedMergeTasks.add(mergeTask);
+            // memoize
+            synchronized (this) {
+                var estimate = mergeTask.getEstimateMergeMemoryBytes();
+                if (estimate > maxMergeMemoryEstimate.memoryBytes) {
+                    maxMergeMemoryEstimate = new MaxMergeMemoryEstimate(mergeTask.getOnGoingMerge().getId(), estimate);
+                }
+            }
+            mergeEventConsumer.onMergeQueued(mergeTask.getOnGoingMerge(), mergeTask.getEstimateMergeMemoryBytes());
             return true;
         }
     }
 
     void reEnqueueBackloggedMergeTask(MergeTask mergeTask) {
+        // todo: why is this separate
         queuedMergeTasks.add(mergeTask);
     }
 
@@ -194,10 +209,16 @@ public class ThreadPoolMergeExecutorService {
             }
             mergeTask.run();
         } finally {
-            boolean removed = runningMergeTasks.remove(mergeTask);
-            assert removed : "completed merge task [" + mergeTask + "] not registered as running";
-            if (mergeTask.supportsIOThrottling()) {
-                ioThrottledMergeTasksCount.decrementAndGet();
+            synchronized (this) {
+                boolean removed = runningMergeTasks.remove(mergeTask);
+                assert removed : "completed merge task [" + mergeTask + "] not registered as running";
+                if (mergeTask.supportsIOThrottling()) {
+                    ioThrottledMergeTasksCount.decrementAndGet();
+                }
+                mergeEventConsumer.onMergeCompleted(mergeTask.getOnGoingMerge());
+                if (mergeTask.getOnGoingMerge().getId().equals(maxMergeMemoryEstimate.mergeId)) {
+                    for (var task: runningMergeTasks.stream())
+                }
             }
         }
     }
@@ -300,5 +321,16 @@ public class ThreadPoolMergeExecutorService {
     // exposed for tests
     int getConcurrentMergesCeilLimitForThrottling() {
         return concurrentMergesCeilLimitForThrottling;
+    }
+
+    public void registerMergeEventConsumer(MergeEventConsumer consumer) {
+        assert this.mergeEventConsumer == null;
+        this.mergeEventConsumer = consumer;
+    }
+
+    public interface MergeEventConsumer {
+        void onMergeQueued(OnGoingMerge merge, long estimateMergeMemoryBytes);
+
+        void onMergeCompleted(OnGoingMerge merge);
     }
 }

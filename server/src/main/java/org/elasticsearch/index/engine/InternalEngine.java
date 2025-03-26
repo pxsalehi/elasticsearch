@@ -2858,7 +2858,7 @@ public class InternalEngine extends Engine {
         @Nullable ThreadPoolMergeExecutorService threadPoolMergeExecutorService
     ) {
         if (threadPoolMergeExecutorService != null) {
-            return new EngineThreadPoolMergeScheduler(shardId, indexSettings, threadPoolMergeExecutorService);
+            return new EngineThreadPoolMergeScheduler(shardId, indexSettings, threadPoolMergeExecutorService, this::estimateMergeBytes);
         } else {
             return new EngineConcurrentMergeScheduler(shardId, indexSettings);
         }
@@ -2868,9 +2868,10 @@ public class InternalEngine extends Engine {
         EngineThreadPoolMergeScheduler(
             ShardId shardId,
             IndexSettings indexSettings,
-            ThreadPoolMergeExecutorService threadPoolMergeExecutorService
+            ThreadPoolMergeExecutorService threadPoolMergeExecutorService,
+            MergeMemoryEstimator mergeMemoryEstimator
         ) {
-            super(shardId, indexSettings, threadPoolMergeExecutorService);
+            super(shardId, indexSettings, threadPoolMergeExecutorService, mergeMemoryEstimator);
         }
 
         @Override
@@ -3548,6 +3549,15 @@ public class InternalEngine extends Engine {
             throw new EngineException(shardId, "failed to perform action with directory reader", ex);
         } finally {
             store.decRef();
+        }
+    }
+
+    protected long estimateMergeBytes(MergePolicy.OneMerge merge) {
+        try (Searcher searcher = acquireSearcher("merge_memory_estimation", SearcherScope.INTERNAL)) {
+            return MergeMemoryEstimator.estimateMergeMemory(merge, searcher.getIndexReader());
+        } catch (AlreadyClosedException e) {
+            // Can't estimate if the searcher is closed
+            return 0L;
         }
     }
 }
