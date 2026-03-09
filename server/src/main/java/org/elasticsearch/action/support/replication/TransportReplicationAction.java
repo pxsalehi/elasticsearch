@@ -890,7 +890,7 @@ public abstract class TransportReplicationAction<
             ).orElse(null);
             if (blockException != null) {
                 if (blockException.retryable()) {
-                    logger.trace("cluster is blocked, scheduling a retry", blockException);
+                    logger.info("[retry with possible execution flag] cluster is blocked, scheduling a retry", blockException);
                     retry(blockException);
                 } else {
                     finishAsFailed(blockException);
@@ -900,8 +900,9 @@ public abstract class TransportReplicationAction<
                 if (indexMetadata == null) {
                     // ensure that the cluster state on the node is at least as high as the node that decided that the index was there
                     if (state.version() < request.routedBasedOnClusterVersion()) {
-                        logger.trace(
-                            "failed to find index [{}] for request [{}] despite sender thinking it would be here. "
+                        logger.info(
+                            "[retry with possible execution flag]"
+                                + "failed to find index [{}] for request [{}] despite sender thinking it would be here. "
                                 + "Local cluster state version [{}]] is older than on sending node (version [{}]), scheduling a retry...",
                             request.shardId().getIndex(),
                             request,
@@ -940,8 +941,9 @@ public abstract class TransportReplicationAction<
 
                 final ShardRouting primary = state.routingTable(project.get().id()).shardRoutingTable(request.shardId()).primaryShard();
                 if (primary.active() == false) {
-                    logger.trace(
-                        "primary shard [{}] is not yet active, scheduling a retry: action [{}], request [{}], "
+                    logger.info(
+                        "[retry with possible execution flag] "
+                            + "primary shard [{}] is not yet active, scheduling a retry: action [{}], request [{}], "
                             + "cluster state version [{}]",
                         request.shardId(),
                         actionName,
@@ -952,8 +954,9 @@ public abstract class TransportReplicationAction<
                     return;
                 }
                 if (state.nodes().nodeExists(primary.currentNodeId()) == false) {
-                    logger.trace(
-                        "primary shard [{}] is assigned to an unknown node [{}], scheduling a retry: action [{}], request [{}], "
+                    logger.info(
+                        "[retry with possible execution flag] "
+                            + "primary shard [{}] is assigned to an unknown node [{}], scheduling a retry: action [{}], request [{}], "
                             + "cluster state version [{}]",
                         request.shardId(),
                         primary.currentNodeId(),
@@ -1001,8 +1004,9 @@ public abstract class TransportReplicationAction<
 
         private void performRemoteAction(ClusterState state, ShardRouting primary, DiscoveryNode node) {
             if (state.version() < request.routedBasedOnClusterVersion()) {
-                logger.trace(
-                    "failed to find primary [{}] for request [{}] despite sender thinking it would be here. Local cluster state "
+                logger.info(
+                    "[retry with possible execution flag] "
+                        + "failed to find primary [{}] for request [{}] despite sender thinking it would be here. Local cluster state "
                         + "version [{}]] is older than on sending node (version [{}]), scheduling a retry...",
                     request.shardId(),
                     request,
@@ -1080,6 +1084,9 @@ public abstract class TransportReplicationAction<
                             boolean possiblyExecuted = true;
                             if (cause instanceof ReplicationOperation.RetryOnPrimaryException retryOnPrimaryException) {
                                 possiblyExecuted = retryOnPrimaryException.possiblyExecutedOnPrimary();
+                            }
+                            if (possiblyExecuted) {
+                                logger.info("[retry with possible execution flag] due to {}: {}", cause.getMessage(), cause);
                             }
                             retry(exp, possiblyExecuted);
                         } else {
